@@ -19,7 +19,6 @@ const PaymentCallback = () => {
   const [transactionId, setTransactionId] = useState(null);
   const [orderId, setOrderId] = useState(null);
   const [manualConfirming, setManualConfirming] = useState(false);
-  const [confirmSuccess, setConfirmSuccess] = useState(false);
 
   useEffect(() => {
     const verifyPayment = async () => {
@@ -73,28 +72,34 @@ const PaymentCallback = () => {
     try {
       let orderIdToUpdate = orderId;
       
+      // First try to find order by transaction ID
       if (!orderIdToUpdate && transactionId) {
         try {
+          console.log('Looking for order with transaction ID:', transactionId);
           const orderResponse = await api.get(`/orders/by-transaction/${transactionId}`);
           orderIdToUpdate = orderResponse.data.id;
-          console.log('Found order by transaction ID:', orderIdToUpdate);
+          console.log('Found order ID:', orderIdToUpdate);
         } catch (err) {
-          console.error('Error finding order:', err);
+          console.error('Error finding order by transaction ID:', err);
         }
       }
       
       if (orderIdToUpdate) {
+        console.log('Manually confirming payment for order:', orderIdToUpdate);
+        
+        // Call the manual confirmation endpoint
         const response = await api.post(`/payment/confirm-manual/${orderIdToUpdate}`);
         console.log('Manual confirmation response:', response.data);
         
         if (response.data.success) {
-          setConfirmSuccess(true);
           setStatus('success');
           setMessage('ការទូទាត់ប្រាក់ជោគជ័យ! ការបញ្ជាទិញរបស់អ្នកត្រូវបានបញ្ជាក់។');
           toast.success('បានបញ្ជាក់ការទូទាត់ដោយជោគជ័យ!');
           
+          // Clear cart
           localStorage.removeItem('cart');
           
+          // Redirect to success page after 2 seconds
           setTimeout(() => {
             navigate('/payment-success', { 
               state: { orderId: orderIdToUpdate }
@@ -153,25 +158,6 @@ const PaymentCallback = () => {
 
   const display = getStatusDisplay();
   const IconComponent = display.icon;
-
-  if (confirmSuccess) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100 px-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center animate-fadeIn">
-          <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce">
-            <CheckCircleIcon className="h-12 w-12 text-green-600" />
-          </div>
-          <h2 className="text-2xl md:text-3xl font-bold text-green-600 mb-3 font-khmer">ទូទាត់ប្រាក់ជោគជ័យ!</h2>
-          <p className="text-gray-600 mb-6 font-khmer">កំពុងបញ្ជូនបន្តទៅការបញ្ជាក់ការបញ្ជាទិញ...</p>
-          <div className="flex justify-center space-x-1">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 px-4">
