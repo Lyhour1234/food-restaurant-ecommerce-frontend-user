@@ -1,12 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { 
-  ClockIcon, 
-  CheckCircleIcon, 
-  XCircleIcon, 
-  ExclamationTriangleIcon,
-  ShoppingCartIcon
-} from '@heroicons/react/24/outline';
+import { ClockIcon, CheckCircleIcon, XCircleIcon, ArrowPathIcon, ShoppingCartIcon } from '@heroicons/react/24/outline';
 import api from '../api';
 import toast from 'react-hot-toast';
 
@@ -15,15 +9,13 @@ const PaymentCallback = () => {
   const navigate = useNavigate();
   const [status, setStatus] = useState('verifying');
   const [message, setMessage] = useState('');
-  const [attempts, setAttempts] = useState(0);
-  const maxAttempts = 10;
+  const [transactionId, setTransactionId] = useState(null);
+  const [manualConfirming, setManualConfirming] = useState(false);
 
   useEffect(() => {
     const verifyPayment = async () => {
       const params = new URLSearchParams(location.search);
       let transId = params.get('transaction_id');
-      
-      console.log('Payment callback - Transaction ID:', transId);
       
       if (!transId) {
         setStatus('error');
@@ -31,132 +23,116 @@ const PaymentCallback = () => {
         return;
       }
       
-      // Poll for payment status (check every 2 seconds, up to 20 seconds)
-      const checkStatus = async (retryCount = 0) => {
+      setTransactionId(transId);
+      
+      // Try to verify up to 5 times
+      for (let i = 0; i < 5; i++) {
         try {
           const response = await api.get(`/payment/status/${transId}`);
-          console.log(`Verification attempt ${retryCount + 1}:`, response.data);
           
           if (response.data.verified && response.data.payment_status === 'success') {
             setStatus('success');
-            setMessage('ការទូទាត់ប្រាក់ជោគជ័យ! ការបញ្ជាទិញរបស់អ្នកត្រូវបានបញ្ជាក់។');
-            toast.success('ទូទាត់ប្រាក់ជោគជ័យ!');
-            
+            setMessage('ការទូទាត់ប្រាក់ជោគជ័យ!');
             localStorage.removeItem('cart');
-            
-            setTimeout(() => {
-              navigate('/payment-success', { 
-                state: { orderId: response.data.order_id }
-              });
-            }, 3000);
-            return true;
-          } else if (retryCount < maxAttempts) {
-            // Wait 2 seconds and try again
-            setAttempts(retryCount + 1);
-            setTimeout(() => checkStatus(retryCount + 1), 2000);
-          } else {
-            setStatus('failed');
-            setMessage('ការផ្ទៀងផ្ទាត់ការទូទាត់បរាជ័យ។ សូមទាក់ទងអ្នកគាំទ្រ។');
+            setTimeout(() => navigate('/payment-success', { state: { orderId: response.data.order_id } }), 2000);
+            return;
           }
         } catch (error) {
-          console.error('Payment verification error:', error);
-          if (retryCount < maxAttempts) {
-            setAttempts(retryCount + 1);
-            setTimeout(() => checkStatus(retryCount + 1), 2000);
-          } else {
-            setStatus('failed');
-            setMessage('កំហុសក្នុងការផ្ទៀងផ្ទាត់ការទូទាត់។ សូមទាក់ទងអ្នកគាំទ្រ។');
-          }
+          console.error('Verification attempt failed:', error);
         }
-      };
+        
+        if (i < 4) await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
-      // Start polling
-      checkStatus();
+      setStatus('failed');
+      setMessage('ការផ្ទៀងផ្ទាត់ការទូទាត់បរាជ័យ។ សូមចុចប៊ូតុងខាងក្រោមដើម្បីបញ្ជាក់ការទូទាត់ដោយដៃ។');
     };
     
     verifyPayment();
   }, [location, navigate]);
 
-  const getStatusDisplay = () => {
-    switch (status) {
-      case 'verifying':
-        return {
-          icon: ClockIcon,
-          title: 'កំពុងផ្ទៀងផ្ទាត់ការទូទាត់',
-          color: 'text-yellow-600',
-          bgColor: 'bg-yellow-50',
-          iconBgColor: 'bg-yellow-100'
-        };
-      case 'success':
-        return {
-          icon: CheckCircleIcon,
-          title: 'ទូទាត់ប្រាក់ជោគជ័យ!',
-          color: 'text-green-600',
-          bgColor: 'bg-green-50',
-          iconBgColor: 'bg-green-100'
-        };
-      case 'failed':
-        return {
-          icon: XCircleIcon,
-          title: 'ទូទាត់ប្រាក់បរាជ័យ',
-          color: 'text-red-600',
-          bgColor: 'bg-red-50',
-          iconBgColor: 'bg-red-100'
-        };
-      default:
-        return {
-          icon: ExclamationTriangleIcon,
-          title: 'កំហុស',
-          color: 'text-red-600',
-          bgColor: 'bg-red-50',
-          iconBgColor: 'bg-red-100'
-        };
+  const handleManualConfirm = async () => {
+    setManualConfirming(true);
+    
+    try {
+      const orderResponse = await api.get(`/orders/by-transaction/${transactionId}`);
+      const orderId = orderResponse.data.id;
+      
+      const response = await api.post(`/payment/confirm-manual/${orderId}`);
+      
+      if (response.data.success) {
+        toast.success('បានបញ្ជាក់ការទូទាត់ដោយជោគជ័យ!');
+        localStorage.removeItem('cart');
+        setTimeout(() => navigate('/payment-success', { state: { orderId } }), 2000);
+      }
+    } catch (error) {
+      toast.error('មិនអាចបញ្ជាក់ការទូទាត់បានទេ');
+    } finally {
+      setManualConfirming(false);
     }
   };
 
-  const display = getStatusDisplay();
-  const IconComponent = display.icon;
+  if (status === 'verifying') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <ClockIcon className="h-12 w-12 text-yellow-600 animate-pulse" />
+          </div>
+          <h2 className="text-2xl font-bold text-yellow-600 mb-3">កំពុងផ្ទៀងផ្ទាត់</h2>
+          <p className="text-gray-600 mb-6">សូមមេត្តារង់ចាំ...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-orange-200 border-t-orange-600 mx-auto"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'success') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-green-50 px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircleIcon className="h-12 w-12 text-green-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-green-600 mb-3">ទូទាត់ជោគជ័យ!</h2>
+          <p className="text-gray-600 mb-6">{message}</p>
+          <p className="text-sm text-gray-500">កំពុងបញ្ជូនបន្ត...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 px-4">
-      <div className={`max-w-md w-full ${display.bgColor} rounded-2xl shadow-xl p-8 text-center animate-fadeIn`}>
-        <div className={`w-24 h-24 ${display.iconBgColor} rounded-full flex items-center justify-center mx-auto mb-6`}>
-          <IconComponent className={`h-12 w-12 ${display.color}`} />
+    <div className="min-h-screen flex items-center justify-center bg-red-50 px-4">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+        <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <XCircleIcon className="h-12 w-12 text-red-600" />
         </div>
+        <h2 className="text-2xl font-bold text-red-600 mb-3">ទូទាត់បរាជ័យ</h2>
+        <p className="text-gray-600 mb-6">{message}</p>
         
-        <h2 className={`text-2xl md:text-3xl font-bold ${display.color} mb-3 font-khmer`}>{display.title}</h2>
-        <p className="text-gray-600 mb-6 font-khmer leading-relaxed">{message}</p>
-        
-        {status === 'verifying' && (
-          <div className="flex flex-col items-center justify-center space-y-4">
-            <div className="animate-spin rounded-full h-10 w-10 border-4 border-orange-200 border-t-orange-600"></div>
-            <p className="text-sm text-gray-500 font-khmer">កំពុងផ្ទៀងផ្ទាត់ ({attempts}/{maxAttempts})...</p>
-            <p className="text-xs text-gray-400">សូមមេត្តារង់ចាំ</p>
-          </div>
-        )}
-        
-        {status === 'failed' && (
-          <div className="space-y-3">
-            <button
-              onClick={() => navigate('/cart')}
-              className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition transform hover:scale-105 font-khmer flex items-center justify-center space-x-2"
-            >
-              <ShoppingCartIcon className="h-5 w-5" />
-              <span>ត្រឡប់ទៅកន្ត្រក</span>
-            </button>
-          </div>
-        )}
-        
-        {status === 'success' && (
-          <div className="space-y-3">
-            <p className="text-sm text-gray-500 font-khmer">កំពុងបញ្ជូនបន្តទៅការបញ្ជាក់ការបញ្ជាទិញ...</p>
-            <div className="flex justify-center space-x-1">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-            </div>
-          </div>
-        )}
+        <div className="space-y-3">
+          <button
+            onClick={handleManualConfirm}
+            disabled={manualConfirming}
+            className="w-full bg-green-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-green-600 transition flex items-center justify-center space-x-2"
+          >
+            {manualConfirming ? (
+              <ArrowPathIcon className="h-5 w-5 animate-spin" />
+            ) : (
+              <CheckCircleIcon className="h-5 w-5" />
+            )}
+            <span>បញ្ជាក់ការទូទាត់ដោយដៃ</span>
+          </button>
+          
+          <button
+            onClick={() => navigate('/cart')}
+            className="w-full bg-orange-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-orange-600 transition flex items-center justify-center space-x-2"
+          >
+            <ShoppingCartIcon className="h-5 w-5" />
+            <span>ត្រឡប់ទៅកន្ត្រក</span>
+          </button>
+        </div>
       </div>
     </div>
   );
