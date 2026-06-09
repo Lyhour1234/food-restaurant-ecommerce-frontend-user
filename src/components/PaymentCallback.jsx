@@ -5,7 +5,6 @@ import {
   CheckCircleIcon, 
   XCircleIcon, 
   ExclamationTriangleIcon,
-  ArrowPathIcon,
   ShoppingCartIcon
 } from '@heroicons/react/24/outline';
 import api from '../api';
@@ -16,9 +15,8 @@ const PaymentCallback = () => {
   const navigate = useNavigate();
   const [status, setStatus] = useState('verifying');
   const [message, setMessage] = useState('');
-  const [transactionId, setTransactionId] = useState(null);
-  const [orderId, setOrderId] = useState(null);
-  const [manualConfirming, setManualConfirming] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const maxAttempts = 10;
 
   useEffect(() => {
     const verifyPayment = async () => {
@@ -33,91 +31,51 @@ const PaymentCallback = () => {
         return;
       }
       
-      setTransactionId(transId);
-      
-      try {
-        const response = await api.get(`/payment/status/${transId}`);
-        console.log('Verification response:', response.data);
-        
-        if (response.data.verified && response.data.payment_status === 'success') {
-          setStatus('success');
-          setMessage('ការទូទាត់ប្រាក់ជោគជ័យ! ការបញ្ជាទិញរបស់អ្នកត្រូវបានបញ្ជាក់។');
-          toast.success('ទូទាត់ប្រាក់ជោគជ័យ!');
+      // Poll for payment status (check every 2 seconds, up to 20 seconds)
+      const checkStatus = async (retryCount = 0) => {
+        try {
+          const response = await api.get(`/payment/status/${transId}`);
+          console.log(`Verification attempt ${retryCount + 1}:`, response.data);
           
-          localStorage.removeItem('cart');
-          
-          setTimeout(() => {
-            navigate('/payment-success', { 
-              state: { orderId: response.data.order_id }
-            });
-          }, 3000);
-        } else {
-          setStatus('failed');
-          setMessage('ការផ្ទៀងផ្ទាត់ការទូទាត់បរាជ័យ។ សូមចុចប៊ូតុងខាងក្រោមដើម្បីបញ្ជាក់ការទូទាត់ដោយដៃ។');
-          setOrderId(response.data.order_id);
+          if (response.data.verified && response.data.payment_status === 'success') {
+            setStatus('success');
+            setMessage('ការទូទាត់ប្រាក់ជោគជ័យ! ការបញ្ជាទិញរបស់អ្នកត្រូវបានបញ្ជាក់។');
+            toast.success('ទូទាត់ប្រាក់ជោគជ័យ!');
+            
+            localStorage.removeItem('cart');
+            
+            setTimeout(() => {
+              navigate('/payment-success', { 
+                state: { orderId: response.data.order_id }
+              });
+            }, 3000);
+            return true;
+          } else if (retryCount < maxAttempts) {
+            // Wait 2 seconds and try again
+            setAttempts(retryCount + 1);
+            setTimeout(() => checkStatus(retryCount + 1), 2000);
+          } else {
+            setStatus('failed');
+            setMessage('ការផ្ទៀងផ្ទាត់ការទូទាត់បរាជ័យ។ សូមទាក់ទងអ្នកគាំទ្រ។');
+          }
+        } catch (error) {
+          console.error('Payment verification error:', error);
+          if (retryCount < maxAttempts) {
+            setAttempts(retryCount + 1);
+            setTimeout(() => checkStatus(retryCount + 1), 2000);
+          } else {
+            setStatus('failed');
+            setMessage('កំហុសក្នុងការផ្ទៀងផ្ទាត់ការទូទាត់។ សូមទាក់ទងអ្នកគាំទ្រ។');
+          }
         }
-      } catch (error) {
-        console.error('Payment verification error:', error);
-        setStatus('error');
-        setMessage('កំហុសក្នុងការផ្ទៀងផ្ទាត់ការទូទាត់។ សូមចុចប៊ូតុងខាងក្រោមដើម្បីបញ្ជាក់ការទូទាត់ដោយដៃ។');
-      }
+      };
+      
+      // Start polling
+      checkStatus();
     };
     
     verifyPayment();
   }, [location, navigate]);
-
-  const handleManualConfirm = async () => {
-    setManualConfirming(true);
-    
-    try {
-      let orderIdToUpdate = orderId;
-      
-      // First try to find order by transaction ID
-      if (!orderIdToUpdate && transactionId) {
-        try {
-          console.log('Looking for order with transaction ID:', transactionId);
-          const orderResponse = await api.get(`/orders/by-transaction/${transactionId}`);
-          orderIdToUpdate = orderResponse.data.id;
-          console.log('Found order ID:', orderIdToUpdate);
-        } catch (err) {
-          console.error('Error finding order by transaction ID:', err);
-        }
-      }
-      
-      if (orderIdToUpdate) {
-        console.log('Manually confirming payment for order:', orderIdToUpdate);
-        
-        // Call the manual confirmation endpoint
-        const response = await api.post(`/payment/confirm-manual/${orderIdToUpdate}`);
-        console.log('Manual confirmation response:', response.data);
-        
-        if (response.data.success) {
-          setStatus('success');
-          setMessage('ការទូទាត់ប្រាក់ជោគជ័យ! ការបញ្ជាទិញរបស់អ្នកត្រូវបានបញ្ជាក់។');
-          toast.success('បានបញ្ជាក់ការទូទាត់ដោយជោគជ័យ!');
-          
-          // Clear cart
-          localStorage.removeItem('cart');
-          
-          // Redirect to success page after 2 seconds
-          setTimeout(() => {
-            navigate('/payment-success', { 
-              state: { orderId: orderIdToUpdate }
-            });
-          }, 2000);
-        } else {
-          toast.error('មិនអាចបញ្ជាក់ការទូទាត់បានទេ');
-        }
-      } else {
-        toast.error('មិនអាចរកឃើញការបញ្ជាទិញ');
-      }
-    } catch (error) {
-      console.error('Manual confirmation error:', error);
-      toast.error(error.response?.data?.detail || 'មិនអាចបញ្ជាក់ការទូទាត់បានទេ');
-    } finally {
-      setManualConfirming(false);
-    }
-  };
 
   const getStatusDisplay = () => {
     switch (status) {
@@ -172,30 +130,13 @@ const PaymentCallback = () => {
         {status === 'verifying' && (
           <div className="flex flex-col items-center justify-center space-y-4">
             <div className="animate-spin rounded-full h-10 w-10 border-4 border-orange-200 border-t-orange-600"></div>
-            <p className="text-sm text-gray-500 font-khmer">សូមមេត្តារង់ចាំ...</p>
+            <p className="text-sm text-gray-500 font-khmer">កំពុងផ្ទៀងផ្ទាត់ ({attempts}/{maxAttempts})...</p>
+            <p className="text-xs text-gray-400">សូមមេត្តារង់ចាំ</p>
           </div>
         )}
         
-        {(status === 'failed' || status === 'error') && (
+        {status === 'failed' && (
           <div className="space-y-3">
-            <button
-              onClick={handleManualConfirm}
-              disabled={manualConfirming}
-              className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition transform hover:scale-105 font-khmer disabled:opacity-50 flex items-center justify-center space-x-2"
-            >
-              {manualConfirming ? (
-                <>
-                  <ArrowPathIcon className="h-5 w-5 animate-spin" />
-                  <span>កំពុងដំណើរការ...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircleIcon className="h-5 w-5" />
-                  <span>បញ្ជាក់ការទូទាត់ដោយដៃ</span>
-                </>
-              )}
-            </button>
-            
             <button
               onClick={() => navigate('/cart')}
               className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition transform hover:scale-105 font-khmer flex items-center justify-center space-x-2"
