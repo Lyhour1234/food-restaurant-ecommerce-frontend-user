@@ -1,0 +1,12 @@
+[build]
+  command = "npm run build"
+  publish = "build"
+
+[build.environment]
+  REACT_APP_API_URL = "https://food-restaurant-ecommerce.onrender.com/api"
+  REACT_APP_PAYMENT_SUCCESS_URL = "https://teal-peony-8a9d57.netlify.app/payment-success"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
