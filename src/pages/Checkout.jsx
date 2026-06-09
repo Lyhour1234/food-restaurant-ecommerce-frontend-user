@@ -94,14 +94,17 @@ const Checkout = () => {
         }))
       };
       
-      console.log('Order Data:', orderData);
+      console.log('Creating order:', orderData);
       
       const orderResponse = await api.post('/orders', orderData);
       const order = orderResponse.data;
       
+      // Use the deployed frontend URL for callback
+      const callbackUrl = process.env.REACT_APP_PAYMENT_CALLBACK_URL || `${window.location.origin}/payment-callback`;
+      
       const paymentResponse = await api.post('/payment/create-session', {
         order_id: order.id,
-        success_url: `${window.location.origin}/payment-callback?transaction_id=${order.transaction_id}`
+        success_url: `${callbackUrl}?transaction_id=${order.transaction_id}`
       });
       
       localStorage.removeItem('cart');
